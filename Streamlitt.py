@@ -724,7 +724,7 @@ else:
 
 
 # 🛠️ Step 1: Install Required Libraries
-!pip install pandas PyMuPDF
+
 
 # 📦 Step 2: Import Libraries
 import pandas as pd
