@@ -167,7 +167,7 @@ print("utility_bill_with_mpesa columns:", utility_df.columns.tolist())
 
 
 # 🛠️ Step 1: Install Required Libraries
-!pip install pandas PyMuPDF
+
 
 # 📦 Step 2: Import Libraries
 import pandas as pd
