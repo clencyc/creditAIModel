@@ -7,3 +7,5 @@ seaborn
 fpdf
 joblib
 requests
+Faker
+PyMuPDF
