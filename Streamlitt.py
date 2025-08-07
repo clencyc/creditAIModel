@@ -185,7 +185,7 @@ import fitz  # PyMuPDF for PDF parsing
 mpesa_csv = '/content/synthetic_mpesa_transactions.csv'
 bills_csv = '/content/utility_bills_with_mpesa.csv'
 bank_zip = '/content/fwdmockbankstatements.zip'
-extract_dir = '/content/unzipped_pdfs'
+extract_dir = 'unzipped_pdfs'
 
 # 📤 Step 5: Extract Bank Statements from ZIP
 os.makedirs(extract_dir, exist_ok=True)
