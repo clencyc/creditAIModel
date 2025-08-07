@@ -182,9 +182,9 @@ import fitz  # PyMuPDF for PDF parsing
 # drive.mount('/content/drive')
 
 # 📂 Step 4: Set Paths to Your Files (update if needed)
-mpesa_csv = '/content/synthetic_mpesa_transactions.csv'
-bills_csv = '/content/utility_bills_with_mpesa.csv'
-bank_zip = '/content/fwdmockbankstatements.zip'
+mpesa_csv = 'synthetic_mpesa_transactions.csv'
+bills_csv = 'utility_bills_with_mpesa.csv'
+bank_zip = 'fwdmockbankstatements.zip'
 extract_dir = 'unzipped_pdfs'
 
 # 📤 Step 5: Extract Bank Statements from ZIP
