@@ -419,8 +419,8 @@ if 'Date' in combined.columns:
 
 # For now, let's save the combined dataframe as is, assuming the merge ran.
 if not combined.empty:
-    combined.to_csv('/content/combined_financial_data.csv', index=False)
-    print("✅ Combined data saved to '/content/combined_financial_data.csv'")
+    combined.to_csv('combined_financial_data.csv', index=False)
+    print("✅ Combined data saved to 'combined_financial_data.csv'")
     print("\nCombined DataFrame head:")
     display(combined.head())
     print("\nCombined DataFrame columns:")
@@ -434,7 +434,7 @@ import fitz # PyMuPDF
 import os
 
 # Correcting the extraction path to match where the files were unzipped
-extract_path = "/content/unzipped_pdfs"
+extract_path = "unzipped_pdfs"
 
 # Find the first PDF file in the extracted directory
 pdf_files = [f for f in os.listdir(extract_path) if f.endswith(".pdf")]
@@ -509,10 +509,10 @@ import fitz  # PyMuPDF for PDF parsing
 # drive.mount('/content/drive')
 
 # 📂 Step 4: Set Paths to Your Files (update if needed)
-mpesa_csv = '/content/synthetic_mpesa_transactions.csv'
-bills_csv = '/content/utility_bills_with_mpesa.csv'
-bank_zip = '/content/fwdmockbankstatements.zip'
-extract_dir = '/content/unzipped_pdfs'
+mpesa_csv = 'synthetic_mpesa_transactions.csv'
+bills_csv = 'utility_bills_with_mpesa.csv'
+bank_zip = 'fwdmockbankstatements.zip'
+extract_dir = 'unzipped_pdfs'
 
 # 📤 Step 5: Extract Bank Statements from ZIP
 os.makedirs(extract_dir, exist_ok=True)
