@@ -494,7 +494,7 @@ print("\nMerged data saved as merged_data_output.csv")
 
 
 # 🛠️ Step 1: Install Required Libraries
-!pip install pandas PyMuPDF
+
 
 # 📦 Step 2: Import Libraries
 import pandas as pd
