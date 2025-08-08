@@ -9,3 +9,4 @@ joblib
 requests
 Faker
 PyMuPDF
+PyPDF2
