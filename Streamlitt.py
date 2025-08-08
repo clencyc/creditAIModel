@@ -166,42 +166,24 @@ print("utility_bill_with_mpesa columns:", utility_df.columns.tolist())
 
 
 
-# 🛠️ Step 1: Install Required Libraries
+# streamlit_financial_merge.py
 
-
-# 📦 Step 2: Import Libraries
+import streamlit as st
 import pandas as pd
 import zipfile
 import os
-from pathlib import Path
 import re
 import fitz  # PyMuPDF for PDF parsing
+from io import BytesIO
 
-# 📁 Step 3: Mount Google Drive (if your files are there)
-# from google.colab import drive
-# drive.mount('/content/drive')
-
-# 📂 Step 4: Set Paths to Your Files (update if needed)
-mpesa_csv = 'synthetic_mpesa_transactions.csv'
-bills_csv = 'utility_bills_with_mpesa.csv'
-bank_zip = 'fwdmockbankstatements.zip'
-extract_dir = 'unzipped_pdfs'
-
-# 📤 Step 5: Extract Bank Statements from ZIP
-os.makedirs(extract_dir, exist_ok=True)
-with zipfile.ZipFile(bank_zip, 'r') as zip_ref:
-    zip_ref.extractall(extract_dir)
-
-# Define the bank statement parsing function (corrected from BWA3Kxh_ZOl0)
+# -----------------------------
+# Bank Statement Parsing Function
+# -----------------------------
 def improved_parse_bank_statement_text(text):
-    """
-    Parses text from a bank statement PDF to extract transaction data.
-    Now includes logic to extract Account Number and handle varied formats.
-    """
     transactions = []
     account_number = "Unknown"
 
-    # Extract Account Number (Handling different possible patterns)
+    # Extract account number
     acct_match1 = re.search(r'Account Number:\s*([\d\-]+)', text)
     acct_match2 = re.search(r'Account:\s*([\d\-]+)', text)
     if acct_match1:
@@ -209,224 +191,134 @@ def improved_parse_bank_statement_text(text):
     elif acct_match2:
         account_number = acct_match2.group(1).strip()
 
-    # Find the start of the transactions table (Handling different possible headers)
-    # Look for 'Date', 'Description', 'Debit', 'Credit', 'Balance' or similar combinations
-    # Updated header pattern based on debug output and previous attempts
-    # Using \s+ to match one or more whitespace characters, and potentially include newlines
-    header_pattern = re.compile(r'Date\s+Description\s+Details\s+Debit\s+\(KES\)\s+Credit\s+\(KES\)\s+Balance\s+\(KES\)', re.IGNORECASE)
+    # Try finding transaction header
+    header_pattern = re.compile(
+        r'Date\s+Description\s+Details\s+Debit\s+\(KES\)\s+Credit\s+\(KES\)\s+Balance\s+\(KES\)',
+        re.IGNORECASE
+    )
     header_match = header_pattern.search(text)
+    transaction_text = text[header_match.end():] if header_match else text
 
-    transaction_text = ""
-    if header_match:
-        transaction_text = text[header_match.end():]
-    else:
-        # Fallback: If header not found, try to find patterns of transaction lines
-        # This is less reliable and may pick up non-transaction lines
-        print(f"Warning: Could not find transaction header in document for account {account_number}. Attempting to parse lines.")
-        transaction_text = text # Use the whole text and rely on line parsing regex
-
-
-    # Regex to find transaction lines (adjust based on observed patterns)
-    # This regex is based on the structure seen in the debug output: Date, Description, Details, Debit, Credit, Balance
-    # It needs to be flexible to handle varying spaces and missing Debit/Credit values.
-    # Assuming Date format DD/MM/YYYY
-    # Making whitespace handling more flexible with \s* and handling potential missing columns more robustly
+    # Regex for transaction lines
     transaction_line_pattern = re.compile(
-        r'^(\d{2}/\d{2}/\d{4})\s*'  # Date (Group 1) - flexible whitespace
-        r'(.*?)\s+'               # Description (Group 2 - non-greedy match for anything, followed by one or more spaces)
-        r'(.*?)\s*'               # Details (Group 3 - non-greedy match for anything, followed by zero or more spaces)
-        r'([\d,\.]*)\s*'          # Debit (Group 4 - includes comma and dot, optional, followed by zero or more spaces)
-        r'([\d,\.]*)\s*'          # Credit (Group 5 - includes comma and dot, optional, followed by zero or more spaces)
-        r'([\d,\.]+)\s*$', re.MULTILINE # Balance (Group 6 - includes comma and dot, optional trailing spaces, end of line)
+        r'^(\d{2}/\d{2}/\d{4})\s*'
+        r'(.*?)\s+'
+        r'(.*?)\s*'
+        r'([\d,\.]*)\s*'
+        r'([\d,\.]*)\s*'
+        r'([\d,\.]+)\s*$',
+        re.MULTILINE
     )
 
+    for line in transaction_text.strip().split('\n'):
+        match = transaction_line_pattern.search(line)
+        if match:
+            date_str, description, details, debit_str, credit_str, balance_str = match.groups()
+            debit = float(debit_str.replace(',', '')) if debit_str.strip() else 0.0
+            credit = float(credit_str.replace(',', '')) if credit_str.strip() else 0.0
+            balance = float(balance_str.replace(',', '')) if balance_str.strip() else 0.0
 
-    # Process text line by line
-    lines = transaction_text.strip().split('\n')
-    for line in lines:
-         match = transaction_line_pattern.search(line)
-         if match:
-              date_str, description, details, debit_str, credit_str, balance_str = match.groups()
-
-              # Clean and convert numeric values
-              debit = float(debit_str.replace(',', '')) if debit_str and debit_str.strip() else 0.0
-              credit = float(credit_str.replace(',', '')) if credit_str and credit_str.strip() else 0.0
-              balance = float(balance_str.replace(',', '')) if balance_str and balance_str.strip() else 0.0
-
-              transactions.append({
-                  'Account_Number': account_number,
-                  'Date': pd.to_datetime(date_str, format='%d/%m/%Y', errors='coerce'),
-                  'Description': f"{description.strip()} - {details.strip()}".strip(' -'), # Combine description and details
-                  'Debit': debit,
-                  'Credit': credit,
-                  'Balance': balance
-              })
-
-
-    if not transactions:
-        print(f"Warning: No transactions extracted for account {account_number}.")
-        return pd.DataFrame() # Return empty DataFrame if no transactions found
-
+            transactions.append({
+                'Account_Number': account_number,
+                'Date': pd.to_datetime(date_str, format='%d/%m/%Y', errors='coerce'),
+                'Description': f"{description.strip()} - {details.strip()}".strip(' -'),
+                'Debit': debit,
+                'Credit': credit,
+                'Balance': balance
+            })
 
     return pd.DataFrame(transactions)
 
+# -----------------------------
+# Streamlit App
+# -----------------------------
+st.title("📊 Financial Data Merger")
+st.write("Upload MPESA, Utility Bills, and Bank Statements to merge into one dataset.")
 
+# File uploaders
+mpesa_file = st.file_uploader("Upload MPESA CSV", type="csv")
+bills_file = st.file_uploader("Upload Utility Bills CSV", type="csv")
+bank_zip_file = st.file_uploader("Upload Bank Statements ZIP", type="zip")
 
-# ✅ Step 6: Clean MPESA Transactions
-mpesa = pd.read_csv(mpesa_csv)
-mpesa.drop_duplicates(inplace=True)
-# Removed string operations from numeric columns
-mpesa['Transaction_Amount'] = mpesa['Transaction_Amount'].astype(float)
-mpesa['Balance'] = mpesa['Balance'].astype(float)
-# Removed string operation from Wallet_Impact
-# mpesa['Wallet_Impact'] = mpesa['Wallet_Impact'].str.lower().str.strip() # Wallet_Impact is numeric
-mpesa['Date'] = pd.to_datetime(mpesa['Date'], errors='coerce')
-mpesa['Source_Type'] = 'MPESA'
-# Rename 'Account' to 'Account_Number' for consistency before merging
-if 'Account' in mpesa.columns:
-    mpesa.rename(columns={"Account": "Account_Number"}, inplace=True)
+if mpesa_file and bills_file:
+    # -----------------------------
+    # Step 1: Load MPESA Data
+    # -----------------------------
+    mpesa = pd.read_csv(mpesa_file)
+    mpesa.drop_duplicates(inplace=True)
+    mpesa['Transaction_Amount'] = mpesa['Transaction_Amount'].astype(float)
+    mpesa['Balance'] = mpesa['Balance'].astype(float)
+    mpesa['Date'] = pd.to_datetime(mpesa['Date'], errors='coerce')
+    mpesa['Source_Type'] = 'MPESA'
+    if 'Account' in mpesa.columns:
+        mpesa.rename(columns={"Account": "Account_Number"}, inplace=True)
+    mpesa.rename(columns={'Transaction_Type': 'Description', 'Transaction_Amount': 'Amount'}, inplace=True)
+    mpesa_clean = mpesa[['Account_Number', 'Date', 'Description', 'Amount', 'Balance', 'Source_Type']]
 
+    # -----------------------------
+    # Step 2: Load Utility Bills Data
+    # -----------------------------
+    bills = pd.read_csv(bills_file)
+    bills.dropna(subset=['Final_Amount_KSh'], inplace=True)
+    bills.rename(columns={'Provider': 'Description', 'Final_Amount_KSh': 'Amount', 'User_ID': 'Account_Number'}, inplace=True)
+    bills['Description'] = bills['Description'].astype(str).str.lower().str.strip()
+    bills['Date'] = pd.to_datetime(bills['Billing_Date'], errors='coerce')
+    bills['Balance'] = None
+    bills['Source_Type'] = 'UTILITY_BILL'
+    bills_clean = bills[['Account_Number', 'Date', 'Description', 'Amount', 'Balance', 'Source_Type']]
 
-# ✅ Step 7: Clean Utility Bills
-bills = pd.read_csv(bills_csv)
-bills.dropna(subset=['Final_Amount_KSh'], inplace=True)
-bills['Final_Amount_KSh'] = bills['Final_Amount_KSh'].astype(float)
-# Assuming 'Provider' column is intended as the description and is string type
-if 'Provider' in bills.columns:
-    # bills['Bill_Type'] = bills['Bill_Type'].str.lower().str.strip() # Renamed to Description below
-    bills.rename(columns={'Provider': 'Description'}, inplace=True) # Renaming Provider to Description
-    if pd.api.types.is_object_dtype(bills['Description']) or pd.api.types.is_string_dtype(bills['Description']):
-         bills['Description'] = bills['Description'].astype(str).str.lower().str.strip()
-    else:
-         print("Warning: 'Description' column in utility bills is not a string type. Skipping string cleaning.")
+    # -----------------------------
+    # Step 3: Parse Bank Statements (if uploaded)
+    # -----------------------------
+    bank_clean_merge = pd.DataFrame()
+    if bank_zip_file:
+        with zipfile.ZipFile(bank_zip_file, 'r') as zip_ref:
+            extract_dir = "unzipped_pdfs"
+            os.makedirs(extract_dir, exist_ok=True)
+            zip_ref.extractall(extract_dir)
 
-bills['Date'] = pd.to_datetime(bills['Billing_Date'], errors='coerce').dt.date # Using Billing_Date as the Date for utility bills
-# Assuming Balance_After is not present or needs to be calculated later
-# bills.rename(columns={'Final_Amount_KSh': 'Amount', 'Balance_After': 'Balance', 'Bill_Type': 'Description'}, inplace=True)
-bills.rename(columns={'Final_Amount_KSh': 'Amount'}, inplace=True)
-bills['Source_Type'] = 'UTILITY_BILL'
-# Rename 'User_ID' to 'Account_Number' for consistency before merging
-if 'User_ID' in bills.columns:
-    bills.rename(columns={"User_ID": "Account_Number"}, inplace=True)
+        all_data = []
+        for fname in os.listdir(extract_dir):
+            if fname.endswith(".pdf"):
+                doc_path = os.path.join(extract_dir, fname)
+                try:
+                    doc = fitz.open(doc_path)
+                    text = ""
+                    for page in doc:
+                        text += page.get_text()
+                    df = improved_parse_bank_statement_text(text)
+                    if not df.empty:
+                        all_data.append(df)
+                except Exception as e:
+                    st.warning(f"Error processing {fname}: {e}")
 
+        if all_data:
+            bank_df = pd.concat(all_data, ignore_index=True)
+            bank_df['Source_Type'] = 'BANK_STATEMENT'
+            bank_df['Amount'] = bank_df['Credit'].fillna(0) - bank_df['Debit'].fillna(0)
+            bank_clean_merge = bank_df[['Account_Number', 'Date', 'Description', 'Amount', 'Balance', 'Source_Type']]
 
-# ✅ Step 8: Parse Bank PDFs (Using the corrected parsing logic from BWA3Kxh_ZOl0)
-# Replicating the parsing loop here for a self-contained cell
-all_data = []
-if os.path.exists(extract_dir):
-    for fname in os.listdir(extract_dir):
-        if fname.endswith(".pdf"):
-            doc_path = os.path.join(extract_dir, fname)
-            try:
-                doc = fitz.open(doc_path)
-                text = ""
-                for page in doc:
-                    text += page.get_text()
-                # Assuming improved_parse_bank_statement_text takes text as input and returns a DataFrame
-                df = improved_parse_bank_statement_text(text) # Need to pass account number if extracted separately
-                if not df.empty:
-                    all_data.append(df)
-            except Exception as e:
-                print(f"Error processing {fname}: {e}")
-
-if all_data:
-    bank_df = pd.concat(all_data, ignore_index=True)
-    bank_df['Source_Type'] = 'BANK_STATEMENT'
-    # Ensure 'Date' column in bank_df is datetime
-    if 'Date' in bank_df.columns and not pd.api.types.is_datetime64_any_dtype(bank_df['Date']):
-        bank_df['Date'] = pd.to_datetime(bank_df['Date'], errors='coerce') # Keep as datetime for merging
-
-else:
-    bank_df = pd.DataFrame()
-    print("Warning: bank_df is empty. PDF parsing may have failed.")
-
-
-# ✅ Step 9: Combine All Sources
-
-# Ensure common columns exist and have appropriate names before merging
-common_cols_initial = ['Account_Number', 'Date', 'Description', 'Amount', 'Balance', 'Source_Type']
-
-# Select and rename columns for merging
-mpesa_clean = mpesa[mpesa.columns.intersection(['Account_Number', 'Date', 'Transaction_Type', 'Transaction_Amount', 'Balance', 'Source_Type'])].copy()
-mpesa_clean.rename(columns={'Transaction_Type': 'Description', 'Transaction_Amount': 'Amount'}, inplace=True)
-mpesa_clean = mpesa_clean[common_cols_initial].copy() # Reindex to ensure consistent column order and drop extras
-
-
-bills_clean = bills[bills.columns.intersection(['Account_Number', 'Date', 'Description', 'Amount', 'Source_Type'])].copy()
-# Bills data doesn't have a 'Balance' column directly equivalent to account balance
-bills_clean['Balance'] = None # Add a placeholder Balance column
-# Ensure Date is datetime for merging consistency
-if 'Date' in bills_clean.columns and not pd.api.types.is_datetime64_any_dtype(bills_clean['Date']):
-    bills_clean['Date'] = pd.to_datetime(bills_clean['Date'], errors='coerce')
-bills_clean = bills_clean[common_cols_initial].copy() # Reindex
-
-
-# Ensure bank_df has the expected columns if populated
-bank_clean_merge = pd.DataFrame() # Initialize as empty
-if not bank_df.empty:
-    bank_clean = bank_df[bank_df.columns.intersection(['Account_Number', 'Date', 'Description', 'Debit', 'Credit', 'Balance', 'Source_Type'])].copy()
-
-    # Create 'Amount' from Debit/Credit for merging purposes
-    # Use Credit as positive amount (inflow), Debit as negative amount (outflow)
-    bank_clean['Amount'] = bank_clean['Credit'].fillna(0) - bank_clean['Debit'].fillna(0)
-
-    # Select columns for bank_clean for merging
-    bank_clean_merge = bank_clean[['Account_Number', 'Date', 'Source_Type', 'Amount', 'Balance', 'Description']].copy()
-    # Ensure Date is datetime for merging
-    if 'Date' in bank_clean_merge.columns and not pd.api.types.is_datetime64_any_dtype(bank_clean_merge['Date']):
-         bank_clean_merge['Date'] = pd.to_datetime(bank_clean_merge['Date'], errors='coerce')
-    # Ensure Account_Number exists (should be present if parsing worked)
-    if 'Account_Number' not in bank_clean_merge.columns:
-         print("Error: 'Account_Number' column is missing in bank_clean_merge after processing. Cannot merge.")
-         bank_clean_merge = pd.DataFrame() # Make it empty to prevent merge errors
-
-
-# Perform Merges
-# Concatenate mpesa and bills first
-merged_initial = pd.concat([mpesa_clean, bills_clean], ignore_index=True)
-
-# Now merge with bank data only if bank_clean_merge is not empty
-if not bank_clean_merge.empty:
-    # Ensure date columns are datetime before merging
-    if 'Date' in merged_initial.columns and not pd.api.types.is_datetime64_any_dtype(merged_initial['Date']):
-         merged_initial['Date'] = pd.to_datetime(merged_initial['Date'], errors='coerce')
-    # bank_clean_merge['Date'] should already be datetime from steps above
-
-    # Perform an outer merge on Account_Number and Date
-    # Using suffixes to distinguish columns from merged_initial and bank_clean_merge
-    combined = pd.merge(merged_initial, bank_clean_merge, on=['Account_Number', 'Date', 'Source_Type'], how='outer', suffixes=('_other', '_bank'))
-
-    # Consolidate columns, prioritizing bank data where available
-    # Handle cases where suffixes might not exist if one side of merge had no data for a given Account_Number/Date/Source_Type combination
-    combined['Description'] = combined['Description_bank'].fillna(combined['Description_other'])
-    combined['Amount'] = combined['Amount_bank'].fillna(combined['Amount_other'])
-    combined['Balance'] = combined['Balance_bank'].fillna(combined['Balance_other']) # Note: Balance from bank is actual balance, from mpesa is running balance, bills is None
-    # Source_Type is merged 'on' so it should be fine
-
-    # Drop the original suffixed columns
-    combined.drop(columns=['Description_other', 'Description_bank', 'Amount_other', 'Amount_bank', 'Balance_other', 'Balance_bank'], errors='ignore', inplace=True)
-
-else:
-    # If bank_clean_merge was empty, combined is just merged_initial
-    combined = merged_initial.copy()
-    print("Warning: Bank data is empty. Combined dataframe contains only MPESA and Utility Bill data.")
-
-
-# ✅ Step 10: Save Final Dataset
-# Sort by date if a consolidated date column exists or is created
-if 'Date' in combined.columns:
+    # -----------------------------
+    # Step 4: Merge All Data
+    # -----------------------------
+    combined = pd.concat([mpesa_clean, bills_clean, bank_clean_merge], ignore_index=True)
     combined = combined.sort_values('Date').reset_index(drop=True)
 
-# For now, let's save the combined dataframe as is, assuming the merge ran.
-if not combined.empty:
-    combined.to_csv('combined_financial_data.csv', index=False)
-    print("✅ Combined data saved to 'combined_financial_data.csv'")
-    print("\nCombined DataFrame head:")
-    st.write(combined.head())
-    print("\nCombined DataFrame columns:")
-    print(combined.columns.tolist())
-else:
-     print("Error: Combined DataFrame is empty after processing.")
+    # -----------------------------
+    # Step 5: Display and Download
+    # -----------------------------
+    st.success("✅ Data merged successfully!")
+    st.dataframe(combined)
+
+    # Download button
+    csv_buffer = BytesIO()
+    combined.to_csv(csv_buffer, index=False)
+    st.download_button(
+        label="📥 Download Merged CSV",
+        data=csv_buffer.getvalue(),
+        file_name="combined_financial_data.csv",
+        mime="text/csv"
+    )
 
 
 
