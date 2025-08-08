@@ -422,7 +422,7 @@ if not combined.empty:
     combined.to_csv('combined_financial_data.csv', index=False)
     print("✅ Combined data saved to 'combined_financial_data.csv'")
     print("\nCombined DataFrame head:")
-    display(combined.head())
+    st.write(combined.head())
     print("\nCombined DataFrame columns:")
     print(combined.columns.tolist())
 else:
