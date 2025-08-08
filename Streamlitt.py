@@ -18,7 +18,6 @@ def unzip_file(zip_file, extract_dir="unzipped_pdfs"):
     return extract_dir
 
 def parse_bank_statement_text(text):
-    # Basic parser – you can improve it
     lines = text.split("\n")
     records = []
     for line in lines:
@@ -36,27 +35,40 @@ def parse_bank_statement_text(text):
                 pass
     return pd.DataFrame(records, columns=["Date", "Description", "Debit", "Credit", "Balance"])
 
+def standardize_date_column(df, possible_names):
+    """Rename any matching column to 'Date', or create if missing."""
+    for name in possible_names:
+        if name in df.columns:
+            df = df.rename(columns={name: "Date"})
+            break
+    if "Date" not in df.columns:
+        df["Date"] = pd.NaT
+    return df
+
 def read_mpesa_csv(file):
     df = pd.read_csv(file)
+    df = standardize_date_column(df, ["Date", "Transaction Date", "Date & Time"])
     df = df.rename(columns={
         "Transaction_Type": "Description",
         "Transaction_Amount": "Amount",
         "Account": "Account_Number"
     })
+    if "Balance" not in df.columns:
+        df["Balance"] = None
     df["Source_Type"] = "M-Pesa"
     return df[["Account_Number", "Date", "Description", "Amount", "Balance", "Source_Type"]]
 
 def read_bills_csv(file):
     df = pd.read_csv(file)
+    df = standardize_date_column(df, ["Date", "Billing_Date", "Payment_Date"])
     df = df.rename(columns={
         "Provider": "Description",
         "Final_Amount_KSh": "Amount",
         "User_ID": "Account_Number"
     })
-    df["Source_Type"] = "Utility Bill"
-    # Bills may not have balance – set NaN
     if "Balance" not in df.columns:
         df["Balance"] = None
+    df["Source_Type"] = "Utility Bill"
     return df[["Account_Number", "Date", "Description", "Amount", "Balance", "Source_Type"]]
 
 # -----------------------
@@ -90,6 +102,7 @@ if bank_zip_file:
                 bank_records.append(df)
     if bank_records:
         bank_df = pd.concat(bank_records, ignore_index=True)
+        bank_df = standardize_date_column(bank_df, ["Date", "Statement_Date", "Txn Date"])
         bank_df = bank_df[["Account_Number", "Date", "Description", "Amount", "Balance", "Source_Type"]]
     else:
         bank_df = pd.DataFrame()
