@@ -834,8 +834,8 @@ else:
 
 # For now, let's save the combined dataframe as is, assuming the merge ran.
 if not combined.empty:
-    combined.to_csv('/content/combined_financial_data.csv', index=False)
-    print("✅ Combined data saved to '/content/combined_financial_data.csv'")
+    combined.to_csv('combined_financial_data.csv', index=False)
+    print("✅ Combined data saved to 'combined_financial_data.csv'")
     print("\nCombined DataFrame head:")
     display(combined.head())
     print("\nCombined DataFrame columns:")
