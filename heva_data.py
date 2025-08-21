@@ -127,6 +127,8 @@ def read_bank_zip(uploaded_zip):
             continue
     return pd.concat(bank_records, ignore_index=True) if bank_records else pd.DataFrame()
 
+from sklearn.preprocessing import LabelEncoder
+
 def add_features(df):
     """
     Add engineered features for credit risk modeling.
@@ -153,17 +155,25 @@ def add_features(df):
     outflow = df[df["Amount"] < 0].groupby("Account_Number")["Amount"].sum().to_dict()
     df["Total_Debit"] = df["Account_Number"].map(outflow)
 
-    # Punctuality score = consistency of reporting (gap days)
+    # Punctuality score
     def calc_punctuality(group):
         dates = group.dropna().sort_values()
         if len(dates) < 2:
             return 0.5
         avg_gap = dates.diff().dt.days.dropna().mean()
-        expected_gap = 30  # assume monthly ideal
+        expected_gap = 30
         score = max(0, min(1, 1 - abs(avg_gap - expected_gap) / expected_gap))
         return round(score, 3)
 
     punctuality_scores = df.groupby("Account_Number")["Date"].apply(calc_punctuality).to_dict()
     df["Punctuality_Score"] = df["Account_Number"].map(punctuality_scores)
 
-    return df
+    # Encode Sector if available
+    if "Sector" in df.columns:
+        le = LabelEncoder()
+        df["Sector_Code"] = le.fit_transform(df["Sector"].astype(str))
+    else:
+        le = None
+        df["Sector_Code"] = 0
+
+    return df, le
