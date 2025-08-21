@@ -1,9 +1,9 @@
 # app.py
 import streamlit as st
 import pandas as pd
-from heva data import read_mpesa_csv, read_bills_csv, read_bank_zip, add_features
-from heva model import train_sector_model
-from heva sector import weight_features, calibrate_probability
+from heva_data import read_mpesa_csv, read_bills_csv, read_bank_zip, add_features
+from heva_model import train_sector_model
+from heva_sector import weight_features, calibrate_probability
 
 st.set_page_config(page_title="HEVA Integrated Credit Intelligence", layout="wide")
 st.title("🌍 HEVA Credit Intelligence – Sector-Aware AI (Calibrated)")
