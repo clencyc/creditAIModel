@@ -1,99 +1,128 @@
-# heva_data.py
-import os, re, zipfile
-from io import BytesIO
-import numpy as np
 import pandas as pd
+import numpy as np
+import zipfile, os, re
+from io import BytesIO
 from PyPDF2 import PdfReader
-from sklearn.preprocessing import LabelEncoder
 
-# ---------- Utilities ----------
+# ---------------------------
+# Helpers
+# ---------------------------
 def safe_to_numeric(series):
-    return pd.to_numeric(series.astype(str).str.replace(r'[^\d\.\-]', '', regex=True), errors="coerce")
-
-def find_date_col(df):
-    for c in df.columns:
-        if any(k in c.lower() for k in ("date","time","billing","payment","txn","transaction")):
-            return c
-    return None
+    return pd.to_numeric(series.astype(str).str.replace(r"[^\d\.\-]", "", regex=True), errors="coerce")
 
 def standardize_date_column(df):
-    col = find_date_col(df)
-    if col: df = df.rename(columns={col: "Date"})
-    if "Date" not in df.columns: df["Date"] = pd.NaT
+    possible_date_cols = ["Date", "Transaction_Date", "Txn_Date", "Billing_Date", "Payment_Date", "date"]
+    for c in possible_date_cols:
+        if c in df.columns:
+            df = df.rename(columns={c: "Date"})
+            break
+    if "Date" not in df.columns:
+        df["Date"] = pd.NaT
+    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
     return df
 
-# ---------- Readers ----------
+# ---------------------------
+# M-Pesa CSV
+# ---------------------------
 def read_mpesa_csv(uploaded_file):
     df = pd.read_csv(uploaded_file)
     df = standardize_date_column(df)
-    df["Amount"] = safe_to_numeric(df.get("Transaction_Amount", pd.Series(dtype=float))).fillna(0)
-    df["Balance"] = safe_to_numeric(df.get("Balance", pd.Series(dtype=float))).fillna(0)
-    df["Source_Type"] = "M-Pesa"
-    df["Account_Number"] = df.get("User_ID", "UNKNOWN")
-    return df[["Account_Number","Date","Transaction_Type","Amount","Balance","Source_Type"]].rename(
-        columns={"Transaction_Type":"Description"}
-    )
 
+    col_map = {
+        "Description": ["Transaction_Type", "Type", "Details", "Description"],
+        "Amount": ["Transaction_Amount", "Amount", "Debit", "Credit"],
+        "Balance": ["Balance", "Account_Balance", "Running_Balance"],
+        "Account_Number": ["Account", "User_ID", "Account_Number", "MSISDN"],
+    }
+
+    for target, candidates in col_map.items():
+        for c in candidates:
+            if c in df.columns:
+                df = df.rename(columns={c: target})
+                break
+        if target not in df.columns:
+            df[target] = "UNKNOWN" if target in ["Description", "Account_Number"] else 0.0
+
+    df["Amount"] = safe_to_numeric(df["Amount"]).fillna(0)
+    df["Balance"] = safe_to_numeric(df["Balance"]).fillna(0)
+    df["Source_Type"] = "M-Pesa"
+
+    return df[["Account_Number", "Date", "Description", "Amount", "Balance", "Source_Type"]]
+
+# ---------------------------
+# Utility Bills CSV
+# ---------------------------
 def read_bills_csv(uploaded_file):
     df = pd.read_csv(uploaded_file)
     df = standardize_date_column(df)
-    df["Amount"] = safe_to_numeric(df.get("Final_Amount_KSh", df.get("Total_Bill_KSh", pd.Series(dtype=float)))).fillna(0)
-    df["Balance"] = safe_to_numeric(df.get("Balance", pd.Series(dtype=float))).fillna(0)
-    df["Source_Type"] = "Utility Bill"
-    df["Account_Number"] = df.get("User_ID","UNKNOWN")
-    return df[["Account_Number","Date","Provider","Amount","Balance","Source_Type"]].rename(
-        columns={"Provider":"Description"}
-    )
 
-def read_bank_zip(uploaded_file):
-    records = []
-    z = zipfile.ZipFile(BytesIO(uploaded_file.read()))
-    for name in z.namelist():
-        if not name.lower().endswith(".pdf"): continue
-        reader = PdfReader(BytesIO(z.read(name)))
-        text = "".join(page.extract_text() or "" for page in reader.pages)
-        for line in text.splitlines():
-            if re.match(r'^\s*\d{1,2}[/-]\d{1,2}[/-]\d{2,4}', line):
-                parts = line.split()
-                try: date = pd.to_datetime(parts[0], errors="coerce", dayfirst=True)
-                except: date = pd.NaT
-                nums = re.findall(r'[-+]?\d[\d,]*\.?\d*', line)
-                balance = nums[-1] if nums else None
-                records.append({
-                    "Account_Number": name,
-                    "Date": date,
-                    "Description": line,
-                    "Amount": float(nums[-2]) if len(nums)>=2 else 0,
-                    "Balance": float(balance.replace(",","")) if balance else 0,
-                    "Source_Type":"Bank Statement"
-                })
-    return pd.DataFrame(records)
+    col_map = {
+        "Description": ["Provider", "Service", "Bill_Type", "Description"],
+        "Amount": ["Final_Amount_KSh", "Total_Bill_KSh", "Amount", "Charge"],
+        "Balance": ["Balance", "Outstanding_Balance", "Remaining_Balance"],
+        "Account_Number": ["User_ID", "Account", "Account_Number", "Customer_ID"],
+    }
 
-# ---------- Feature Engineering ----------
-def add_features(df, sector_map=None):
-    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+    for target, candidates in col_map.items():
+        for c in candidates:
+            if c in df.columns:
+                df = df.rename(columns={c: target})
+                break
+        if target not in df.columns:
+            df[target] = "UNKNOWN" if target in ["Description", "Account_Number"] else 0.0
+
     df["Amount"] = safe_to_numeric(df["Amount"]).fillna(0)
     df["Balance"] = safe_to_numeric(df["Balance"]).fillna(0)
-    if "Source_Type" not in df.columns: df["Source_Type"] = "UNKNOWN"
+    df["Source_Type"] = "Utility Bill"
 
-    # Example: Punctuality Score per account
-    def calc_punctuality(dates):
-        dates = dates.dropna().sort_values()
-        if len(dates)<2: return 0.5
-        avg_gap = dates.diff().dt.days.dropna().mean()
-        expected = 30
-        return max(0,min(1,1-abs(avg_gap-expected)/expected))
+    return df[["Account_Number", "Date", "Description", "Amount", "Balance", "Source_Type"]]
 
-    punctuality = df.groupby("Account_Number")["Date"].apply(calc_punctuality).to_dict()
-    df["Punctuality_Score"] = df["Account_Number"].map(punctuality)
+# ---------------------------
+# Bank Statements (ZIP of PDFs)
+# ---------------------------
+date_line_re = re.compile(r"^\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}-\d{2}-\d{2})")
 
-    # Map sector (dummy until linked with metadata)
-    if sector_map:
-        df["Sector"] = df["Account_Number"].map(sector_map).fillna("General")
-    else:
-        df["Sector"] = "General"
+def parse_bank_statement_text(text):
+    records = []
+    for line in text.splitlines():
+        m = date_line_re.match(line)
+        if not m:
+            continue
+        date = pd.to_datetime(m.group(1), dayfirst=True, errors="coerce")
+        rest = line[m.end():].strip()
+        nums = re.findall(r"[-+]?\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+\.\d+|\d+", rest)
+        desc = re.sub(r"[-+]?\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+\.\d+|\d+", "", rest).strip()
+        debit = nums[-3] if len(nums) >= 3 else None
+        credit = nums[-2] if len(nums) >= 2 else None
+        balance = nums[-1] if len(nums) >= 1 else None
+        records.append({
+            "Date": date,
+            "Description": desc or "UNKNOWN",
+            "Debit": safe_to_numeric(pd.Series([debit]))[0] if debit else np.nan,
+            "Credit": safe_to_numeric(pd.Series([credit]))[0] if credit else np.nan,
+            "Balance": safe_to_numeric(pd.Series([balance]))[0] if balance else np.nan,
+        })
+    return pd.DataFrame(records)
 
-    le = LabelEncoder()
-    df["Sector_Code"] = le.fit_transform(df["Sector"])
+def read_bank_zip(uploaded_zip):
+    bank_records = []
+    try:
+        z = zipfile.ZipFile(BytesIO(uploaded_zip.read()))
+    except Exception as e:
+        return pd.DataFrame()
 
-    return df, le
+    for name in z.namelist():
+        if not name.lower().endswith(".pdf"):
+            continue
+        try:
+            reader = PdfReader(BytesIO(z.read(name)))
+            text = "".join(page.extract_text() + "\n" for page in reader.pages if page.extract_text())
+            df = parse_bank_statement_text(text)
+            if not df.empty:
+                df["Account_Number"] = os.path.splitext(os.path.basename(name))[0]
+                df["Source_Type"] = "Bank Statement"
+                df["Amount"] = df["Credit"].fillna(0) - df["Debit"].fillna(0)
+                bank_records.append(df[["Account_Number", "Date", "Description", "Amount", "Balance", "Source_Type"]])
+        except Exception as e:
+            continue
+    return pd.concat(bank_records, ignore_index=True) if bank_records else pd.DataFrame()
