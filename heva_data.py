@@ -126,3 +126,44 @@ def read_bank_zip(uploaded_zip):
         except Exception as e:
             continue
     return pd.concat(bank_records, ignore_index=True) if bank_records else pd.DataFrame()
+
+def add_features(df):
+    """
+    Add engineered features for credit risk modeling.
+    Expects a standardized dataframe with:
+    ['Account_Number','Date','Description','Amount','Balance','Source_Type']
+    """
+
+    # Ensure Date is datetime
+    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+
+    # Transaction frequency (per account)
+    txn_freq = df.groupby("Account_Number")["Date"].count().to_dict()
+    df["Txn_Frequency"] = df["Account_Number"].map(txn_freq)
+
+    # Average balance per account
+    avg_balance = df.groupby("Account_Number")["Balance"].mean().to_dict()
+    df["Avg_Balance"] = df["Account_Number"].map(avg_balance)
+
+    # Total credit inflow
+    inflow = df[df["Amount"] > 0].groupby("Account_Number")["Amount"].sum().to_dict()
+    df["Total_Credit"] = df["Account_Number"].map(inflow)
+
+    # Total debit outflow
+    outflow = df[df["Amount"] < 0].groupby("Account_Number")["Amount"].sum().to_dict()
+    df["Total_Debit"] = df["Account_Number"].map(outflow)
+
+    # Punctuality score = consistency of reporting (gap days)
+    def calc_punctuality(group):
+        dates = group.dropna().sort_values()
+        if len(dates) < 2:
+            return 0.5
+        avg_gap = dates.diff().dt.days.dropna().mean()
+        expected_gap = 30  # assume monthly ideal
+        score = max(0, min(1, 1 - abs(avg_gap - expected_gap) / expected_gap))
+        return round(score, 3)
+
+    punctuality_scores = df.groupby("Account_Number")["Date"].apply(calc_punctuality).to_dict()
+    df["Punctuality_Score"] = df["Account_Number"].map(punctuality_scores)
+
+    return df
