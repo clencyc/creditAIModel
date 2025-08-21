@@ -10,3 +10,4 @@ requests
 Faker
 PyMuPDF
 PyPDF2
+shap
