@@ -64,7 +64,7 @@ def weight_features(df: pd.DataFrame, sector_col: str = "Sector") -> pd.DataFram
     le = LabelEncoder()
     df["Sector_Code"] = le.fit_transform(df["Sector"].astype(str))
 
-    def add_features(df):
+def add_features(df):
     # (your existing engineered features code …)
 
     # Punctuality scores…
