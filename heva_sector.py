@@ -55,7 +55,32 @@ def weight_features(df: pd.DataFrame, sector_col: str = "Sector") -> pd.DataFram
     # Final cleanup: ensure unique column names
     df = df.loc[:, ~df.columns.duplicated()].copy()
 
-    return df
+        # --- Assign sector (placeholder until real mappings exist) ---
+    if "Sector" not in df.columns:
+        df["Sector"] = "General"   # Default fallback sector
+
+    # Encode Sector → Sector_Code
+    from sklearn.preprocessing import LabelEncoder
+    le = LabelEncoder()
+    df["Sector_Code"] = le.fit_transform(df["Sector"].astype(str))
+
+    def add_features(df):
+    # (your existing engineered features code …)
+
+    # Punctuality scores…
+    punctuality_scores = df.groupby("Account_Number")["Date"].apply(calc_punctuality).to_dict()
+    df["Punctuality_Score"] = df["Account_Number"].map(punctuality_scores)
+
+    # --- Assign sector (default General if missing) ---
+    if "Sector" not in df.columns:
+        df["Sector"] = "General"
+
+    # Encode sector
+    from sklearn.preprocessing import LabelEncoder
+    le = LabelEncoder()
+    df["Sector_Code"] = le.fit_transform(df["Sector"].astype(str))
+
+    return df, le
 
 # ---------------------------
 # 4) Probability calibration
