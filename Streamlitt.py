@@ -18,6 +18,7 @@ col1, col2 = st.columns(2)
 mpesa = col1.file_uploader("Upload M-Pesa CSV", type=["csv"])
 bills = col1.file_uploader("Upload Bills CSV", type=["csv"])
 bankz = col2.file_uploader("Upload Bank ZIP (PDFs)", type=["zip"])
+sector_file = col2.file_uploader("Upload Sector Mapping CSV (Account_Number → Sector)", type=["csv"])
 
 pieces = []
 if mpesa:
@@ -32,14 +33,11 @@ if not pieces:
     st.stop()
 
 # ---------------------------
-# Merge & Basic Labeling
+# Merge & Label
 # ---------------------------
 df = pd.concat(pieces, ignore_index=True)
 
-# Remove duplicate column names (fix InvalidIndexError)
-df = df.loc[:, ~df.columns.duplicated()]
-
-# Basic placeholder target (replace with real labels later)
+# Add a simple placeholder target (replace with real labels later)
 df["Risk_Label"] = df["Balance"].apply(lambda x: 1 if x > 500 else 0)
 
 # ---------------------------
@@ -47,26 +45,37 @@ df["Risk_Label"] = df["Balance"].apply(lambda x: 1 if x > 500 else 0)
 # ---------------------------
 df, le = add_features(df)
 
-# If sector encoder is None, set fallback
-if le is None:
-    class DummyEncoder:
-        def transform(self, arr): return [0] * len(arr)
-    le = DummyEncoder()
+# ---------------------------
+# Sector Mapping
+# ---------------------------
+if sector_file:
+    try:
+        mapping_df = pd.read_csv(sector_file)
+        if "Account_Number" in mapping_df.columns and "Sector" in mapping_df.columns:
+            sector_map = mapping_df.set_index("Account_Number")["Sector"].to_dict()
+            df["Sector"] = df["Account_Number"].map(sector_map).fillna("General")
+            st.success("✅ Sector mapping applied from uploaded file.")
+        else:
+            st.warning("⚠️ Mapping CSV must have columns: Account_Number, Sector. Defaulting to 'General'.")
+            df["Sector"] = "General"
+    except Exception as e:
+        st.error(f"❌ Failed to read mapping file: {e}")
+        df["Sector"] = "General"
+else:
+    df["Sector"] = "General"
 
-# Drop duplicates again (safety net)
-df = df.loc[:, ~df.columns.duplicated()]
+# Re-encode sector
+df["Sector_Code"] = le.fit_transform(df["Sector"].astype(str))
 
 # ---------------------------
-# Sector-weighted Features
+# Sector Feature Weighting
 # ---------------------------
 df = weight_features(df, sector_col="Sector")
-df = df.loc[:, ~df.columns.duplicated()]  # ensure clean cols
 
-sectors = sorted(df["Sector"].dropna().unique())
-st.success(f"✅ {len(df)} records processed across sectors: {', '.join(sectors)}")
+st.success(f"✅ {len(df)} records processed across sectors: {', '.join(sorted(df['Sector'].unique()))}")
 
 # ---------------------------
-# Model Training
+# Train Model
 # ---------------------------
 feature_cols = ["Amount_w", "Balance_w", "Punctuality_Score_w", "Sector_Code"]
 model = train_sector_model(df, feature_cols)
@@ -75,14 +84,12 @@ model = train_sector_model(df, feature_cols)
 # Inference UI
 # ---------------------------
 st.subheader("📊 Predict Credit Risk (Sector-Calibrated)")
-
 amt = st.number_input("Transaction Amount", value=1000.0, step=100.0)
 bal = st.number_input("Balance", value=500.0, step=50.0)
-sector = st.selectbox("Sector", options=sectors if sectors else ["General"])
-sec_code = int(le.transform([sector])[0]) if le else 0
+sector = st.selectbox("Sector", options=sorted(df["Sector"].unique()))
+sec_code = int(le.transform([sector])[0])
 punct = st.slider("Punctuality Score", 0.0, 1.0, 0.5, 0.01)
 
-# Build weighted row
 row = pd.DataFrame([{
     "Amount": amt,
     "Balance": bal,
@@ -91,15 +98,13 @@ row = pd.DataFrame([{
     "Sector_Code": sec_code
 }])
 
-row = row.loc[:, ~row.columns.duplicated()]
 row_w = weight_features(row, sector_col="Sector")
 X_user = row_w[feature_cols]
 
-# Predictions
 proba = model.predict_proba(X_user)[0].max()
 pred = model.predict(X_user)[0]
 
-# Apply sector calibration
+# Apply sector probability calibration (α/β)
 proba_cal = calibrate_probability(proba, sector)
 pred_cal = 1 if proba_cal >= 0.5 else 0
 
