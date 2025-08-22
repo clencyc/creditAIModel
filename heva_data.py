@@ -3,15 +3,21 @@ import numpy as np
 import zipfile, os, re
 from io import BytesIO
 from PyPDF2 import PdfReader
+from sklearn.preprocessing import LabelEncoder
 
 # ---------------------------
 # Helpers
 # ---------------------------
 def safe_to_numeric(series):
-    return pd.to_numeric(series.astype(str).str.replace(r"[^\d\.\-]", "", regex=True), errors="coerce")
+    return pd.to_numeric(
+        series.astype(str).str.replace(r"[^\d\.\-]", "", regex=True),
+        errors="coerce"
+    )
 
 def standardize_date_column(df):
-    possible_date_cols = ["Date", "Transaction_Date", "Txn_Date", "Billing_Date", "Payment_Date", "date"]
+    possible_date_cols = [
+        "Date", "Transaction_Date", "Txn_Date", "Billing_Date", "Payment_Date", "date"
+    ]
     for c in possible_date_cols:
         if c in df.columns:
             df = df.rename(columns={c: "Date"})
@@ -108,7 +114,7 @@ def read_bank_zip(uploaded_zip):
     bank_records = []
     try:
         z = zipfile.ZipFile(BytesIO(uploaded_zip.read()))
-    except Exception as e:
+    except Exception:
         return pd.DataFrame()
 
     for name in z.namelist():
@@ -116,19 +122,25 @@ def read_bank_zip(uploaded_zip):
             continue
         try:
             reader = PdfReader(BytesIO(z.read(name)))
-            text = "".join(page.extract_text() + "\n" for page in reader.pages if page.extract_text())
+            text = "".join(
+                page.extract_text() + "\n"
+                for page in reader.pages if page.extract_text()
+            )
             df = parse_bank_statement_text(text)
             if not df.empty:
                 df["Account_Number"] = os.path.splitext(os.path.basename(name))[0]
                 df["Source_Type"] = "Bank Statement"
                 df["Amount"] = df["Credit"].fillna(0) - df["Debit"].fillna(0)
-                bank_records.append(df[["Account_Number", "Date", "Description", "Amount", "Balance", "Source_Type"]])
-        except Exception as e:
+                bank_records.append(
+                    df[["Account_Number", "Date", "Description", "Amount", "Balance", "Source_Type"]]
+                )
+        except Exception:
             continue
     return pd.concat(bank_records, ignore_index=True) if bank_records else pd.DataFrame()
 
-from sklearn.preprocessing import LabelEncoder
-
+# ---------------------------
+# Feature Engineering
+# ---------------------------
 def add_features(df):
     """
     Add engineered features for credit risk modeling.
@@ -136,7 +148,6 @@ def add_features(df):
     ['Account_Number','Date','Description','Amount','Balance','Source_Type']
     """
 
-    # Ensure Date is datetime
     df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
 
     # Transaction frequency (per account)
@@ -155,25 +166,25 @@ def add_features(df):
     outflow = df[df["Amount"] < 0].groupby("Account_Number")["Amount"].sum().to_dict()
     df["Total_Debit"] = df["Account_Number"].map(outflow)
 
-    # Punctuality score
+    # Punctuality score = consistency of reporting (gap days)
     def calc_punctuality(group):
         dates = group.dropna().sort_values()
         if len(dates) < 2:
             return 0.5
         avg_gap = dates.diff().dt.days.dropna().mean()
-        expected_gap = 30
+        expected_gap = 30  # assume monthly ideal
         score = max(0, min(1, 1 - abs(avg_gap - expected_gap) / expected_gap))
         return round(score, 3)
 
     punctuality_scores = df.groupby("Account_Number")["Date"].apply(calc_punctuality).to_dict()
     df["Punctuality_Score"] = df["Account_Number"].map(punctuality_scores)
 
-    # Encode Sector if available
-    if "Sector" in df.columns:
-        le = LabelEncoder()
-        df["Sector_Code"] = le.fit_transform(df["Sector"].astype(str))
-    else:
-        le = None
-        df["Sector_Code"] = 0
+    # --- Sector assignment (default "General") ---
+    if "Sector" not in df.columns:
+        df["Sector"] = "General"
+
+    # Encode sector into integers
+    le = LabelEncoder()
+    df["Sector_Code"] = le.fit_transform(df["Sector"].astype(str))
 
     return df, le
