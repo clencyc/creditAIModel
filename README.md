@@ -1,5 +1,6 @@
 🌍 HEVA Credit Intelligence – AI Risk Predictor
 
+
 An AI-powered platform that democratizes access to credit for creative enterprises by analyzing bank statements, M-Pesa transactions, and utility bills.
 
 This system uses a sector-aware, calibrated credit scoring model that accounts for differences across 9 creative sectors (Film, Fashion, Design, Music, Media/Broadcast, etc.), ensuring fairness, transparency, and scalability.
