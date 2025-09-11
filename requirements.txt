@@ -5,6 +5,7 @@ Faker
 PyMuPDF
 shap
 plotly
+reportlab
 
 streamlit>=1.32
 pandas>=2.0
