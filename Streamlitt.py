@@ -307,7 +307,20 @@ except Exception as e:
     for col in ["Amount", "Balance", "Punctuality_Score"]:
         df[f"{col}_w"] = df.get(col, 0.0)
 
-st.success(f"✅ {len(df)} records processed across sectors: {', '.join(sorted(map(str, df['Sector'].unique())))}")
+# Safely display success message with sector information
+try:
+    if 'Sector' in df.columns and not df['Sector'].empty:
+        # Handle NaN values and convert to string safely
+        unique_sectors = df['Sector'].dropna().astype(str).unique()
+        if len(unique_sectors) > 0:
+            sectors_str = ', '.join(sorted(unique_sectors))
+            st.success(f"✅ {len(df)} records processed across sectors: {sectors_str}")
+        else:
+            st.success(f"✅ {len(df)} records processed (no sector information available)")
+    else:
+        st.success(f"✅ {len(df)} records processed (no sector column found)")
+except Exception as e:
+    st.success(f"✅ {len(df)} records processed (sector display error: {str(e)})")
 
 # ---------------------------
 # Quick interactive charts (Plotly)
