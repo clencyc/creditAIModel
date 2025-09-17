@@ -43,32 +43,49 @@ def standardize_date_column(df, possible_names):
             break
     if "Date" not in df.columns:
         df["Date"] = pd.NaT
+    return df  # Return the DataFrame
 
 def read_mpesa_csv(file):
-    df = pd.read_csv(file)
-    df = standardize_date_column(df, ["Date", "Transaction Date", "Date & Time"])
-    df = df.rename(columns={
-        "Transaction_Type": "Description",
-        "Transaction_Amount": "Amount",
-        "Account": "Account_Number"
-    })
-    if "Balance" not in df.columns:
-        df["Balance"] = None
-    df["Source_Type"] = "M-Pesa"
-    return df[["Account_Number", "Date", "Description", "Amount", "Balance", "Source_Type"]]
+    try:
+        df = pd.read_csv(file)
+        if df.empty:
+            st.error("M-Pesa CSV is empty or invalid.")
+            return pd.DataFrame()
+        df = standardize_date_column(df, ["Date", "Transaction Date", "Date & Time"])
+        rename_dict = {
+            "Transaction_Type": "Description",
+            "Transaction_Amount": "Amount",
+            "Account": "Account_Number"
+        }
+        df = df.rename(columns={k: v for k, v in rename_dict.items() if k in df.columns})
+        if "Balance" not in df.columns:
+            df["Balance"] = None
+        df["Source_Type"] = "M-Pesa"
+        return df[["Account_Number", "Date", "Description", "Amount", "Balance", "Source_Type"]]
+    except Exception as e:
+        st.error(f"Error reading M-Pesa CSV: {str(e)}")
+        return pd.DataFrame()
 
 def read_bills_csv(file):
-    df = pd.read_csv(file)
-    df = standardize_date_column(df, ["Date", "Billing_Date", "Payment_Date"])
-    df = df.rename(columns={
-        "Provider": "Description",
-        "Final_Amount_KSh": "Amount",
-        "User_ID": "Account_Number"
-    })
-    if "Balance" not in df.columns:
-        df["Balance"] = None
-    df["Source_Type"] = "Utility Bill"
-    return df[["Account_Number", "Date", "Description", "Amount", "Balance", "Source_Type"]]
+    try:
+        df = pd.read_csv(file)
+        if df.empty:
+            st.error("Utility Bills CSV is empty or invalid.")
+            return pd.DataFrame()
+        df = standardize_date_column(df, ["Date", "Billing_Date", "Payment_Date"])
+        rename_dict = {
+            "Provider": "Description",
+            "Final_Amount_KSh": "Amount",
+            "User_ID": "Account_Number"
+        }
+        df = df.rename(columns={k: v for k, v in rename_dict.items() if k in df.columns})
+        if "Balance" not in df.columns:
+            df["Balance"] = None
+        df["Source_Type"] = "Utility Bill"
+        return df[["Account_Number", "Date", "Description", "Amount", "Balance", "Source_Type"]]
+    except Exception as e:
+        st.error(f"Error reading Utility Bills CSV: {str(e)}")
+        return pd.DataFrame()
 
 # -----------------------
 # File Upload Section
@@ -113,9 +130,13 @@ dfs = []
 if bank_zip_file and not bank_df.empty:
     dfs.append(bank_df)
 if mpesa_file:
-    dfs.append(read_mpesa_csv(mpesa_file))
+    mpesa_df = read_mpesa_csv(mpesa_file)
+    if not mpesa_df.empty:
+        dfs.append(mpesa_df)
 if bills_file:
-    dfs.append(read_bills_csv(bills_file))
+    bills_df = read_bills_csv(bills_file)
+    if not bills_df.empty:
+        dfs.append(bills_df)
 
 if dfs:
     merged_df = pd.concat(dfs, ignore_index=True)
